@@ -1,0 +1,120 @@
+1️⃣ Facade Service là gì? (hiểu đúng bản chất)
+
+Facade Service là lớp điều phối (orchestrator):
+
+KHÔNG chứa logic DB nặng
+
+KHÔNG xử lý transaction chi tiết
+
+Chỉ:
+
+validate
+
+gọi nhiều service con
+
+điều phối flow nghiệp vụ
+
+👉 Transaction thật sự nằm ở service con, không nằm ở facade.
+
+2️⃣ Khi nào nên dùng Facade Service?
+
+Dùng khi:
+
+1 use-case gọi nhiều service
+
+Có nhiều bước nghiệp vụ
+
+Muốn:
+
+tránh self-invocation
+
+kiểm soát transaction rõ ràng
+
+dễ rollback theo từng bước
+
+💡 Rất phổ biến trong:
+
+Import / Batch
+
+Workflow nhiều bước
+
+Banking / Payment / Order
+
+3️⃣ Cấu trúc chuẩn (thực tế đi làm)
+Controller
+   |
+   v
+Facade Service  (NO @Transactional)
+   |
+   +--> Tx Service A (@Transactional)
+   |
+   +--> Tx Service B (@Transactional)
+
+4️⃣ Ví dụ cụ thể (chuẩn production)
+4.1 Controller
+@RestController
+@RequestMapping("/orders")
+public class OrderController {
+
+    private final OrderFacade orderFacade;
+
+    public OrderController(OrderFacade orderFacade) {
+        this.orderFacade = orderFacade;
+    }
+
+    @PostMapping
+    public void createOrder() {
+        orderFacade.createOrder();
+    }
+}
+
+4.2 Facade Service (KHÔNG transaction)
+@Service
+public class OrderFacade {
+
+    private final OrderTxService orderTxService;
+    private final InventoryTxService inventoryTxService;
+
+    public OrderFacade(
+        OrderTxService orderTxService,
+        InventoryTxService inventoryTxService
+    ) {
+        this.orderTxService = orderTxService;
+        this.inventoryTxService = inventoryTxService;
+    }
+
+    public void createOrder() {
+        // orchestration only
+        orderTxService.createOrder();
+        inventoryTxService.reserveStock();
+    }
+}
+
+
+✔ Không @Transactional
+✔ Chỉ điều phối
+✔ Không DB logic
+
+4.3 Transactional Services
+@Service
+public class OrderTxService {
+
+    @Transactional
+    public void createOrder() {
+        // insert order
+    }
+}
+
+@Service
+public class InventoryTxService {
+
+    @Transactional
+    public void reserveStock() {
+        // update stock
+    }
+}
+
+
+✔ Transaction được mở đúng chỗ
+✔ Không self-invocation
+✔ Dễ test
