@@ -1,3 +1,22 @@
+Vai trò của @Version trong Hibernate/JPA rất đặc biệt vì nó hoạt động hoàn toàn tự động. Bạn không cần phải viết code để so sánh version hay bắt exception một cách thủ công trong Business Logic nếu bạn muốn hành vi mặc định là "fail and rollback".
+
+Dưới đây là cơ chế chi tiết:
+
+1. Cơ chế truy vấn tự động (SQL)
+Khi bạn lưu một thực thể có @Version, Hibernate sẽ không chạy lệnh UPDATE thông thường. Thay vào đó, nó sẽ đính kèm thêm điều kiện version vào câu lệnh SQL:
+
+Lúc đọc dữ liệu: SELECT id, stock, version FROM products WHERE id = 1 (Giả sử lấy được stock = 10, version = 5).
+Lúc lưu dữ liệu (save): Hibernate sẽ sinh ra câu lệnh:
+sql
+UPDATE products 
+SET stock = 9, version = 6 -- Tự tăng version lên 1
+WHERE id = 1 AND version = 5; -- Chỉ update nếu version vẫn là 5
+2. Check version như thế nào?
+Hibernate sẽ kiểm tra số lượng dòng bị tác động (row count) của câu lệnh UPDATE trên:
+
+Nếu row count = 1: Thành công.
+Nếu row count = 0: Nghĩa là có ai đó đã update dòng này trước bạn (làm version trong DB tăng lên 6 chẳng hạn), nên điều kiện WHERE version = 5 không còn khớp. Hibernate sẽ hiểu ngay là đã có xung đột (Optimistic Lock).
+
 1️⃣ Facade Service là gì? (hiểu đúng bản chất)
 
 Facade Service là lớp điều phối (orchestrator):
