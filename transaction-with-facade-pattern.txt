@@ -17,6 +17,10 @@ Hibernate sẽ kiểm tra số lượng dòng bị tác động (row count) củ
 Nếu row count = 1: Thành công.
 Nếu row count = 0: Nghĩa là có ai đó đã update dòng này trước bạn (làm version trong DB tăng lên 6 chẳng hạn), nên điều kiện WHERE version = 5 không còn khớp. Hibernate sẽ hiểu ngay là đã có xung đột (Optimistic Lock).
 
+PESSIMISTIC_READ allows us to obtain a shared lock and prevent the data from being updated or deleted.
+PESSIMISTIC_WRITE allows us to obtain an exclusive lock and prevent the data from being read, updated or deleted.
+PESSIMISTIC_FORCE_INCREMENT works like PESSIMISTIC_WRITE, and it additionally increments a version attribute of a versioned entity.
+
 1️⃣ Facade Service là gì? (hiểu đúng bản chất)
 
 Facade Service là lớp điều phối (orchestrator):
