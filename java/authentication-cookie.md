@@ -334,3 +334,267 @@ Nếu bạn muốn tiếp:
 * 🔥 **Diagram luồng auth để làm tài liệu**
 
 Cứ nói, Cancer triển tiếp đúng thứ bạn cần 💼🚀
+
+Chuẩn câu hỏi **đi vào “chất lượng hệ thống”** luôn 👌
+Handle **message lỗi authentication** đúng cách giúp:
+
+* UX rõ ràng
+* Không leak security info
+* Dễ log, dễ audit
+
+Cancer chia ra **đúng 4 lớp cần handle** trong **Spring Security (session-based)**.
+
+---
+
+# 1. Phân biệt 2 loại lỗi auth (rất quan trọng)
+
+| Loại               | Khi nào xảy ra                | HTTP               |
+| ------------------ | ----------------------------- | ------------------ |
+| **Authentication** | Chưa login / login sai        | `401 Unauthorized` |
+| **Authorization**  | Đã login nhưng không đủ quyền | `403 Forbidden`    |
+
+👉 Mỗi loại **handle khác nhau**, đừng gộp.
+
+---
+
+# 2. Handle lỗi **CHƯA LOGIN / SESSION HẾT HẠN**
+
+👉 `AuthenticationEntryPoint`
+
+### Custom AuthenticationEntryPoint
+
+```java
+@Component
+public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
+
+    @Override
+    public void commence(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            AuthenticationException authException
+    ) throws IOException {
+
+        response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+        response.setContentType("application/json");
+
+        response.getWriter().write("""
+        {
+          "code": "AUTH_001",
+          "message": "Authentication required or session expired"
+        }
+        """);
+    }
+}
+```
+
+📌 Dùng cho:
+
+* Session timeout
+* Chưa login
+* Cookie không hợp lệ
+
+---
+
+# 3. Handle lỗi **KHÔNG ĐỦ QUYỀN**
+
+👉 `AccessDeniedHandler`
+
+```java
+@Component
+public class RestAccessDeniedHandler implements AccessDeniedHandler {
+
+    @Override
+    public void handle(
+            HttpServletRequest request,
+            HttpServletResponse response,
+            AccessDeniedException accessDeniedException
+    ) throws IOException {
+
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json");
+
+        response.getWriter().write("""
+        {
+          "code": "AUTH_002",
+          "message": "Access denied"
+        }
+        """);
+    }
+}
+```
+
+---
+
+# 4. Register vào Spring Security
+
+```java
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig {
+
+    @Bean
+    public SecurityFilterChain filterChain(
+            HttpSecurity http,
+            RestAuthenticationEntryPoint authenticationEntryPoint,
+            RestAccessDeniedHandler accessDeniedHandler
+    ) throws Exception {
+
+        http
+            .csrf(csrf -> csrf.disable())
+            .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/auth/**").permitAll()
+                .anyRequest().authenticated()
+            )
+            .exceptionHandling(ex -> ex
+                .authenticationEntryPoint(authenticationEntryPoint)
+                .accessDeniedHandler(accessDeniedHandler)
+            )
+            .sessionManagement(session -> session
+                .sessionFixation().migrateSession()
+            );
+
+        return http.build();
+    }
+}
+```
+
+✔ Từ đây:
+
+* 401 → message custom
+* 403 → message custom
+
+---
+
+# 5. Handle lỗi **LOGIN SAI (email/password)**
+
+👉 Lỗi này xảy ra **TRONG quá trình authenticate**
+
+### Controller login (best practice)
+
+```java
+@PostMapping("/login")
+public ResponseEntity<?> login(
+        @RequestBody LoginRequest request,
+        HttpServletRequest httpRequest
+) {
+    try {
+        Authentication authentication =
+            authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(
+                    request.email(),
+                    request.password()
+                )
+            );
+
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+
+        HttpSession session = httpRequest.getSession(true);
+        session.setAttribute(
+            HttpSessionSecurityContextRepository.SPRING_SECURITY_CONTEXT_KEY,
+            context
+        );
+
+        return ResponseEntity.ok("Login success");
+
+    } catch (BadCredentialsException ex) {
+        return ResponseEntity
+                .status(HttpStatus.UNAUTHORIZED)
+                .body(Map.of(
+                    "code", "AUTH_003",
+                    "message", "Invalid credentials"
+                ));
+    }
+}
+```
+
+❗ **Không bao giờ trả**:
+
+* “Email not found”
+* “Password wrong”
+
+👉 Tránh user enumeration.
+
+---
+
+# 6. Handle **SESSION TIMEOUT** (rất hay bị bỏ sót)
+
+### application.yml
+
+```yaml
+spring:
+  session:
+    timeout: 15m
+```
+
+Khi session expire:
+
+* Request sau → **401**
+* Đi vào `AuthenticationEntryPoint`
+
+✔ Không cần code thêm
+
+---
+
+# 7. Chuẩn format error response (enterprise-style)
+
+👉 NÊN thống nhất:
+
+```json
+{
+  "timestamp": "2026-02-03T10:15:30",
+  "code": "AUTH_001",
+  "message": "Authentication required",
+  "path": "/api/profile"
+}
+```
+
+📌 Frontend xử lý cực dễ:
+
+* 401 → redirect login
+* 403 → show permission dialog
+
+---
+
+# 8. Mapping lỗi auth → UX (rất thực tế)
+
+| Code     | FE xử lý                      |
+| -------- | ----------------------------- |
+| AUTH_001 | Redirect login                |
+| AUTH_002 | Show “no permission”          |
+| AUTH_003 | Show “email/password invalid” |
+
+---
+
+# 9. Anti-pattern cần tránh ❌
+
+❌ Throw RuntimeException trong controller
+❌ Global `@ControllerAdvice` bắt auth lỗi
+❌ Trả message quá chi tiết
+❌ HTTP 200 nhưng body báo lỗi
+
+---
+
+# 10. Cancer’s final take 🧠
+
+> **Authentication error handling là contract giữa BE & FE**
+>
+> Không phải chỉ để “bắt lỗi”, mà để **kiểm soát hành vi hệ thống**
+
+Nếu làm đúng:
+
+* Security tăng
+* UX rõ
+* Debug prod dễ
+
+---
+
+Nếu bạn muốn, mình có thể:
+
+* 🔐 Handle **CSRF error riêng**
+* 🔄 Custom logout success message
+* 🧪 Test auth error bằng MockMvc
+* 🧠 Design error code chuẩn cho ngân hàng
+
+Bạn muốn đào sâu phần nào tiếp?
+
